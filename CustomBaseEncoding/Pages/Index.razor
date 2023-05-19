@@ -1,0 +1,132 @@
+@page "/"
+@inject NavigationManager navigationManager
+
+@using CustomBaseEncoding.Core;
+@using System.Text.Json.Nodes;
+@using System.Text.Json;
+@using System.Web;
+@using System.Text;
+
+<div class="root-container">
+    <div class="left pane">
+        <textarea class="input" @oninput="OnInputChanged">@InputData</textarea>
+    </div>
+    <div class="right pane">
+        <textarea class="output" readonly>@OutputData</textarea>
+    </div>
+</div>
+
+@code
+{
+    private string? InputData { get; set; }
+    private string? OutputData { get; set; }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+
+        var uriBuilder = new UriBuilder(navigationManager.Uri);
+
+        if (string.IsNullOrWhiteSpace(uriBuilder.Query))
+            return;
+
+        var parsedQuery = HttpUtility.ParseQueryString(uriBuilder.Query);
+
+        string? base64Data = parsedQuery.Get("d");
+
+        if (string.IsNullOrWhiteSpace(base64Data))
+            return;
+
+        byte[] binaryData = Convert.FromBase64String(base64Data.Trim());
+
+        InputData = Encoding.UTF8.GetString(binaryData);
+
+        SetInputBinaryData(binaryData);
+    }
+
+    private void OnInputChanged(ChangeEventArgs args)
+    {
+        OutputData = string.Empty;
+
+        string? textData = args.Value?.ToString();
+
+        if (textData == null)
+            return;
+
+        SetInputTextData(textData);
+    }
+
+    private void UpdateUrl(byte[] binaryData)
+    {
+        var uriBuilder = new UriBuilder(navigationManager.Uri);
+
+        uriBuilder.Query = $"?d={Convert.ToBase64String(binaryData, Base64FormattingOptions.None)}";
+
+        navigationManager.NavigateTo(uriBuilder.Uri.ToString(), false);
+    }
+
+    private void SetInputTextData(string textData)
+    {
+        // If input mode is hexa.
+        //byte[] binaryData = FromTextArrayData(textData);
+
+        // If input mode is text.
+        byte[] binaryData = Encoding.UTF8.GetBytes(textData);
+
+        UpdateUrl(binaryData);
+
+        SetInputBinaryData(binaryData);
+    }
+
+    private void SetInputBinaryData(byte[] binaryData)
+    {
+        string convertedData = CustomBaseEncoding.Encode(binaryData, Alphabets.Base62Alphabet);
+
+        OutputData = convertedData;
+    }
+
+    private static bool IsHexa(char c)
+    {
+        return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F';
+    }
+
+    private static bool IsHexaString(string str)
+    {
+        foreach (char c in str)
+        {
+            if (IsHexa(c) == false)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static byte[] FromTextArrayData(string data)
+    {
+        data = data.Trim();
+
+        if (data.StartsWith("[]byte"))
+            data = data[6..].TrimStart();
+
+        data = data.Trim('{', '}', '[', ']');
+
+        data = data.Trim();
+
+        string[] values = data.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (values.Length == 1 && IsHexaString(values[0]))
+            return Convert.FromHexString(values[0]);
+
+        var result = new List<byte>();
+
+        foreach (string strValue in values)
+        {
+            if (strValue.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                result.Add(Convert.ToByte(strValue[2..], 16));
+            else
+                result.Add(byte.Parse(strValue));
+        }
+
+        return result.ToArray();
+    }
+}
