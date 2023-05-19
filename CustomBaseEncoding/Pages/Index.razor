@@ -9,6 +9,15 @@
 
 <div class="root-container">
     <div class="left pane">
+        <div class="toolbar">
+            <div class="input-type">
+                <span>Input type:</span>
+                <select @bind="InputType" @oninput="OnInputTypeChanged">
+                    <option value="0">UTF8 text</option>
+                    <option value="1">Hexadecimal</option>
+                </select>
+            </div>
+        </div>
         <textarea class="input" @oninput="OnInputChanged">@InputData</textarea>
     </div>
     <div class="right pane">
@@ -18,6 +27,8 @@
 
 @code
 {
+    private int InputType { get; set; }
+
     private string? InputData { get; set; }
     private string? OutputData { get; set; }
 
@@ -32,46 +43,65 @@
 
         var parsedQuery = HttpUtility.ParseQueryString(uriBuilder.Query);
 
-        string? base64Data = parsedQuery.Get("d");
-
-        if (string.IsNullOrWhiteSpace(base64Data))
+        if (int.TryParse(parsedQuery.Get("t"), out int inputType) == false)
             return;
 
-        byte[] binaryData = Convert.FromBase64String(base64Data.Trim());
+        string? base62Data = parsedQuery.Get("d");
 
-        InputData = Encoding.UTF8.GetString(binaryData);
+        if (string.IsNullOrWhiteSpace(base62Data))
+            return;
+
+        byte[] binaryData = CustomBaseEncoding.Decode(base62Data.Trim(), Alphabets.Base62Alphabet);
+
+        InputType = inputType;
+
+        if (inputType == 0)
+            InputData = Encoding.UTF8.GetString(binaryData);
+        else
+            InputData = Convert.ToHexString(binaryData);
 
         SetInputBinaryData(binaryData);
     }
 
-    private void OnInputChanged(ChangeEventArgs args)
+    private void OnInputTypeChanged(ChangeEventArgs e)
     {
-        OutputData = string.Empty;
+        if (e.Value is string v)
+            InputType = int.Parse(v);
 
-        string? textData = args.Value?.ToString();
+        ProcessInputTextData();
+    }
 
-        if (textData == null)
-            return;
+    private void OnInputChanged(ChangeEventArgs e)
+    {
+        InputData = e.Value as string;
 
-        SetInputTextData(textData);
+        ProcessInputTextData();
     }
 
     private void UpdateUrl(byte[] binaryData)
     {
         var uriBuilder = new UriBuilder(navigationManager.Uri);
 
-        uriBuilder.Query = $"?d={Convert.ToBase64String(binaryData, Base64FormattingOptions.None)}";
+        uriBuilder.Query = $"?t={InputType}&d={CustomBaseEncoding.Encode(binaryData, Alphabets.Base62Alphabet)}";
 
         navigationManager.NavigateTo(uriBuilder.Uri.ToString(), false);
     }
 
-    private void SetInputTextData(string textData)
+    private void ProcessInputTextData()
     {
-        // If input mode is hexa.
-        //byte[] binaryData = FromTextArrayData(textData);
+        if (InputData == null)
+            return;
 
-        // If input mode is text.
-        byte[] binaryData = Encoding.UTF8.GetBytes(textData);
+        OutputData = string.Empty;
+
+        byte[] binaryData;
+
+        if (InputType == 0)
+            binaryData = Encoding.UTF8.GetBytes(InputData);
+        else if (InputType == 1)
+            binaryData = FromTextArrayData(InputData);
+        else
+            return;
 
         UpdateUrl(binaryData);
 
@@ -92,6 +122,9 @@
 
     private static bool IsHexaString(string str)
     {
+        if (str.Length % 2 != 0)
+            return false;
+
         foreach (char c in str)
         {
             if (IsHexa(c) == false)
@@ -114,17 +147,19 @@
 
         string[] values = data.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        if (values.Length == 1 && IsHexaString(values[0]))
-            return Convert.FromHexString(values[0]);
-
         var result = new List<byte>();
 
         foreach (string strValue in values)
         {
+            string mutableStrValue = strValue;
+
             if (strValue.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                result.Add(Convert.ToByte(strValue[2..], 16));
-            else
-                result.Add(byte.Parse(strValue));
+                mutableStrValue = mutableStrValue[2..];
+
+            if (IsHexaString(mutableStrValue) == false)
+                return Array.Empty<byte>();
+
+            result.AddRange(Convert.FromHexString(mutableStrValue));
         }
 
         return result.ToArray();
