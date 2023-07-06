@@ -110,7 +110,7 @@
 
     private void SetInputBinaryData(byte[] binaryData)
     {
-        string convertedData = CustomBaseEncoding.Encode(binaryData, Alphabets.Base62Alphabet);
+        string convertedData = CustomBaseEncoding.Encode(binaryData, Alphabets.Base58AsciiOrderAlphabet);
 
         OutputData = convertedData;
     }
